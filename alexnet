@@ -1,0 +1,96 @@
+% nastaveni cesty k datasetu
+dataobr="/Users/dominikzlamal/Desktop/data";
+% nacitani obrazku ze slozek, kazda slozka vytvari tridu
+tridyobr = imageDatastore(dataobr, ...
+    'IncludeSubfolders', true, ...
+    'LabelSource', 'foldernames', ...
+    'FileExtensions', {'.jpg','.jpeg','.png','.JPG','.JPEG','.PNG'});
+
+% filtrovani trid s mensim poctem obrazku
+tab = countEachLabel(tridyobr);
+prah = 20;
+dobreTridy = tab.Label(tab.Count >= prah);
+idx = ismember(tridyobr.Labels, dobreTridy);
+tridyobr = subset(tridyobr, idx);
+
+% vypsani trid ktere splnily podminku pro min. pocet a nasledne vypsani jejich poctu
+disp('Zachované třídy (>= 20 obrázků):');
+disp(categories(tridyobr.Labels));
+disp('Tridy: ');
+disp(categories(tridyobr.Labels))
+
+%disp(tridyobr)
+disp('Pocet obrazku v jednotlivych tridach: ')
+countEachLabel(tridyobr)
+disp('Pocet trid: ')
+pocettrid=numel(categories(tridyobr.Labels));
+disp(pocettrid)
+
+% rozdeleni dat na trenovaci a validacni cast
+[obrtrenink,obrvalidace]=splitEachLabel(tridyobr,0.7,'randomized');
+
+% vypsani poctu obrazku v trenovaci a validacni sade
+disp('trenovaci sada')
+countEachLabel(obrtrenink)
+disp('validacni sada')
+countEachLabel(obrvalidace)
+
+% ulozeni puvodni validacni sady pro pozdejsi porovnani trid
+imdsVal = obrvalidace;
+
+% nastaveni augmentace trenovacich obrazku
+imageAugmenter = imageDataAugmenter( ...
+    'RandRotation',[0 360], ...
+    'RandXReflection',true, ...
+    'RandYReflection',true, ...
+    'RandXTranslation',[-5 5], ...
+    'RandYTranslation',[-5 5], ...
+    'RandScale',[0.8 1.2]);
+
+% zmena velikosti vstupnich dat podle pozadavku site AlexNet
+velobr=[227 227 3];
+
+% priprava trenovacich dat vcetne augmentace
+obrtrenink = augmentedImageDatastore(velobr, obrtrenink, 'DataAugmentation', imageAugmenter);
+obrvalidace = augmentedImageDatastore(velobr, obrvalidace);
+
+% nacteni predtrenovane CNN site AlexNet
+net=alexnet;
+
+% odebrani poslednich vrstev puvodni site
+layerTransfer=net.Layers(1:end -3);
+
+% nastaveni poctu vystupnich trid podle datasetu
+numClasses = pocettrid;
+vrstvy = [layerTransfer
+    fullyConnectedLayer(numClasses)
+    softmaxLayer
+    classificationLayer];
+
+% nastaveni parametru trenovani site
+options = trainingOptions('sgdm', ...
+    'InitialLearnRate', 1e-4, ...
+    'MaxEpochs', 10, ...
+    'Shuffle', 'every-epoch', ...
+    'ValidationData', obrvalidace, ...
+    'ValidationFrequency', 5, ...
+    'Verbose', false, ...
+    'Plots', 'training-progress');
+
+% trenovani upravene cnn site
+trenovaciNetw=trainNetwork(obrtrenink,vrstvy,options);
+
+% klasifikace validacnich dat natrenovanou siti
+[YPred,pravdepodobnost]=classify(trenovaciNetw,obrvalidace);
+
+% nacteni spravnych trid z puvodni validacni sady
+spravnetridy=imdsVal.Labels;
+
+% vypocet presnosti modelu, ktery je udavany v procentech
+presnost=mean(YPred==spravnetridy)*100;
+
+% vypsani dosazene presnosti
+disp(['Presnost klasifikace na zvalidovanych datech: ', num2str(presnost,'%.2f')])
+
+% ulozeni natrenovane site do souboru
+save('trenovaciNet.mat','trenovaciNetw');
