@@ -45,5 +45,4 @@ alexnet/
 resnet18/
 resnet50/
 mobilenetv2/
-cnn_svm/
-results/
+svm/
