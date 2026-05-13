@@ -1,0 +1,64 @@
+dataobr="/Users/dominikzlamal/Desktop/data";
+tridyobr = imageDatastore(dataobr, ...
+    'IncludeSubfolders', true, ...
+    'LabelSource', 'foldernames', ...
+    'FileExtensions', {'.jpg','.jpeg','.png','.JPG','.JPEG','.PNG'});
+
+tab = countEachLabel(tridyobr);
+prah = 20;
+dobreTridy = tab.Label(tab.Count >= prah);
+idx = ismember(tridyobr.Labels, dobreTridy);
+tridyobr = subset(tridyobr, idx);
+
+disp('Vsechny tridy z datasetu:');
+disp(categories(tridyobr.Labels));
+disp('Tridy: ');
+disp(categories(tridyobr.Labels))
+disp('Pocet obrazku v jednotlivych tridach: ')
+countEachLabel(tridyobr)
+disp('Pocet trid: ')
+pocettrid = numel(categories(tridyobr.Labels));
+disp(pocettrid)
+
+[obrtrenink, obrvalidace] = splitEachLabel(tridyobr, 0.7, 'randomized');
+disp('trenovaci sada')
+countEachLabel(obrtrenink)
+disp('validacni sada')
+countEachLabel(obrvalidace)
+
+imdsVal = obrvalidace;
+
+velobr = [227 227 3];
+obrtrenink = augmentedImageDatastore(velobr, obrtrenink);
+obrvalidace = augmentedImageDatastore(velobr, obrvalidace);
+
+net = alexnet;
+layerTransfer = net.Layers(1:end-3);
+
+numClasses = pocettrid;
+vrstvy = [
+    layerTransfer
+    fullyConnectedLayer(numClasses)
+    softmaxLayer
+    classificationLayer
+];
+
+options = trainingOptions('sgdm', ...
+    'InitialLearnRate', 1e-4, ...
+    'MaxEpochs', 15, ...
+    'Shuffle', 'every-epoch', ...
+    'ValidationData', obrvalidace, ...
+    'ValidationFrequency', 5, ...
+    'Verbose', false, ...
+    'Plots', 'training-progress');
+
+trenovaciNetw = trainNetwork(obrtrenink, vrstvy, options);
+
+[YPred, pravdepodobnost] = classify(trenovaciNetw, obrvalidace);
+
+spravnetridy = imdsVal.Labels;
+presnost = mean(YPred == spravnetridy) * 100;
+
+disp(['Presnost klasifikace na zvalidovanych datech: ', num2str(presnost,'%.2f')])
+
+save('trenovaciNet_bez_augmentace.mat', 'trenovaciNetw');
