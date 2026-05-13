@@ -54,7 +54,7 @@ tridyTrenink = removecats(tridyTrenink);
 % odstraneni nepouzivanych kategorii z validacnich trid
 tridyValidace = removecats(tridyValidace);
 
-% vypocteni trid v jednotlivych tridach
+% spocitani poctu vzorku v jednotlivych tridach
 poctyTrid = countcats(tridyTrenink);
 % rozdeleni trid do sloupcoveho vektoru
 poctyTrid = poctyTrid(:);
