@@ -12,8 +12,8 @@ Repozitar obsahuje MATLAB skripty pouzite v diplomove praci zamerene na klasifik
 | ResNet-18 | Rezidualni sit s nizsi hloubkou |
 | ResNet-50 | Hlubsi rezidualni sit s bottleneck vrstvami |
 | MobileNetV2 | Optimalizovana architektura pro efektivni zpracovani |
-| CNN + SVM | Kombinace extrakce priznaku z CNN a klasifikace pomoci SVM |
-
+| CNN_SVM | Kombinace extrakce priznaku z CNN a klasifikace pomoci SVM |
+| korelacni_heatmapa.m | Skript pro vytvoření korelační heatmapy na základě záměn klasifikátoru CNN + SVM |
 ---
 
 ## Pozadovane MATLAB toolboxy
@@ -25,6 +25,8 @@ Repozitar obsahuje MATLAB skripty pouzite v diplomove praci zamerene na klasifik
 - Deep Learning Toolbox Model for MobileNet-v2 Network
 - Statistics and Machine Learning Toolbox
 - Parallel Computing Toolbox
+
+
 
 ---
 
@@ -46,3 +48,5 @@ resnet18/
 resnet50/
 mobilenetv2/
 svm/
+korelacni_heatmapa/
+
