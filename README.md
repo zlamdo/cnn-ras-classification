@@ -44,6 +44,7 @@ Repozitar obsahuje MATLAB skripty pouzite v diplomove praci zamerene na klasifik
 
 ```text id="0p7a2x"
 alexnet/
+alexnet(bez_augmentace)/
 resnet18/
 resnet50/
 mobilenetv2/
