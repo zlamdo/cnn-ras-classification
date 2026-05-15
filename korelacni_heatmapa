@@ -1,0 +1,133 @@
+% vymazani prostredi
+clear; clc; close all;
+
+% cesta ktera je nasmerovana na slozku kde se nachazi dataset
+dataobr = "/Users/dominikzlamal/Desktop/data";
+
+% nacitani obrazku ze slozek, kazda slozka vytvari tridu
+tridyobr = imageDatastore(dataobr, ...
+    'IncludeSubfolders', true, ...
+    'LabelSource', 'foldernames', ...
+    'FileExtensions', {'.jpg','.jpeg','.png','.JPG','.JPEG','.PNG'});
+
+% filtrovani trid s mensim poctem obrazku
+tabulkaTrid = countEachLabel(tridyobr);
+minimalniPocet = 20;
+zachovaneTridy = tabulkaTrid.Label(tabulkaTrid.Count >= minimalniPocet);
+
+tridyobr = subset(tridyobr, ...
+    ismember(tridyobr.Labels, zachovaneTridy));
+
+% vypsani trid ktere splnily podminku pro min. pocet a nasledne vypsani jejich poctu
+disp("Zachované třídy (>= " + minimalniPocet + " obrázků):");
+disp(categories(tridyobr.Labels));
+
+disp("Počty obrázků v třídách po filtru:");
+disp(countEachLabel(tridyobr));
+
+% rozdeleni dat na trenovaci a validacni cast
+[treninkSada, validacniSada] = splitEachLabel(tridyobr, 0.7, 'randomized');
+
+% vypsani poctu obrazku v trenovaci a validacni sade
+disp("Tréninková sada - počty:");
+disp(countEachLabel(treninkSada));
+
+disp("Validační sada - počty:");
+disp(countEachLabel(validacniSada));
+
+% nacteni predtrenovane CNN site
+dataSite = load('trenovaciNet.mat');
+sitCNN = dataSite.trenovaciNetw;
+
+% zmena velikosti vstupnich dat podle pozadavku site
+velikostVstupu = sitCNN.Layers(1).InputSize(1:2);
+treninkProSit = augmentedImageDatastore(velikostVstupu, treninkSada,'ColorPreprocessing','gray2rgb');
+validaceProSit = augmentedImageDatastore(velikostVstupu, validacniSada,'ColorPreprocessing','gray2rgb');
+
+% extrakce priznaku z vrstvy fc7
+priznakyTrenink = activations(sitCNN, treninkProSit, 'fc7','OutputAs','rows');
+priznakyValidace = activations(sitCNN, validaceProSit, 'fc7','OutputAs','rows');
+
+% nacteni trid z trenovacich dat
+tridyTrenink = treninkSada.Labels;
+
+% nacteni trid z validacnich dat
+tridyValidace = validacniSada.Labels;
+
+% odstraneni nepouzivanych kategorii z trenovacich trid
+tridyTrenink = removecats(tridyTrenink);
+
+% odstraneni nepouzivanych kategorii z validacnich trid
+tridyValidace = removecats(tridyValidace);
+
+% vypocteni poctu vzorku v jednotlivych tridach
+poctyTrid = countcats(tridyTrenink);
+
+% rozdeleni trid do sloupcoveho vektoru
+poctyTrid = poctyTrid(:);
+
+% pojistka proti nulam
+maskaPlatne = poctyTrid > 0;
+poctyPlatne = poctyTrid(maskaPlatne);
+
+% vypocteni vah podle poctu vzorku
+prior = max(poctyPlatne) ./ poctyPlatne;
+
+% normalizace vah tak, aby jejich soucet byl roven 1
+prior = prior / sum(prior);
+
+% ziskani nazvu jednotlivych trid
+nazvyTrid = categories(tridyTrenink);
+nazvyTrid = nazvyTrid(maskaPlatne);
+
+% nastaveni svm klasifikatoru s linearnim jadrem
+nastaveniSVM = templateSVM( ...
+    'KernelFunction','linear', ...
+    'Standardize',true);
+
+% trenovani svm klasifikatoru nad priznaky z cnn site
+modelSVM = fitcecoc(priznakyTrenink, tridyTrenink, ...
+    'Learners', nastaveniSVM, ...
+    'ClassNames', nazvyTrid, ...
+    'Prior', prior);
+
+% predikce trid pro validacni data
+predikce = predict(modelSVM, priznakyValidace);
+
+% vypocet presnosti modelu, ktery je udavany v procentech
+presnost = mean(predikce == tridyValidace) * 100;
+disp(['Přesnost (CNN fc7 + SVM): ', num2str(presnost,'%.2f'), ' %']);
+
+% sjednoceni kategorii pro spravne vykresleni matice zamen
+tridyValidaceCat = categorical(tridyValidace, categories(tridyTrenink));
+predikceCat = categorical(predikce, categories(tridyTrenink));
+
+% vypocet matice zamen
+maticeZamen = confusionmat(tridyValidaceCat, predikceCat);
+
+% normalizace matice zamen po radcich
+maticeZamenNorm = maticeZamen ./ sum(maticeZamen, 2);
+
+% nahrazeni pripadnych NaN hodnot nulou
+maticeZamenNorm(isnan(maticeZamenNorm)) = 0;
+
+% vypocet korelacni matice podle podobnosti zamen klasifikatoru
+korelacniMatice = corrcoef(maticeZamenNorm');
+
+% nahrazeni pripadnych NaN hodnot nulou
+korelacniMatice(isnan(korelacniMatice)) = 0;
+
+% vykresleni korelacni heatmapy
+figure;
+h = heatmap(nazvyTrid, nazvyTrid, korelacniMatice);
+
+h.Title = 'Korelace tříd podle záměn klasifikátoru CNN fc7 + SVM';
+h.XLabel = 'Třída';
+h.YLabel = 'Třída';
+h.Colormap = parula;
+h.ColorLimits = [-1 1];
+
+% ulozeni modelu a vysledku do souboru
+save('svm_fc7_model_korelace.mat','modelSVM','presnost','nazvyTrid', ...
+    'prior','tridyValidaceCat', 'predikceCat','maticeZamen', 'maticeZamenNorm', ...
+    'korelacniMatice','minimalniPocet');
