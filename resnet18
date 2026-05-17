@@ -1,0 +1,164 @@
+% vymazani prostredi
+clc; clear; close all;
+
+% vyber GPU zarizeni
+gpuDevice(1);
+
+% nastaveni cesty k datasetu
+dataobr = "C:\Users\42077\Desktop\data";
+
+% nacitani obrazku ze slozek, kazda slozka vytvari tridu
+tridyobr = imageDatastore(dataobr, ...
+    'IncludeSubfolders', true, ...
+    'LabelSource', 'foldernames', ...
+    'FileExtensions', {'.jpg','.jpeg','.png','.JPG','.JPEG','.PNG'});
+
+% odstraneni pomocnych souboru typu ._*
+[~, jenNazev, ext] = fileparts(tridyobr.Files);
+celeNazvy = string(jenNazev) + string(ext);
+platneIdx = ~startsWith(celeNazvy, "._");
+tridyobr = subset(tridyobr, find(platneIdx));
+
+% vypsani poctu obrazku po odstraneni ._ souboru
+disp('Po odstranění ._ souborů:');
+disp(numel(tridyobr.Files));
+
+% filtrovani trid s mensim poctem obrazku
+tab = countEachLabel(tridyobr);
+prah = 20;
+dobreTridy = tab.Label(tab.Count >= prah);
+idx = ismember(tridyobr.Labels, dobreTridy);
+tridyobr = subset(tridyobr, find(idx));
+
+% odstraneni nepouzivanych kategorii
+tridyobr.Labels = removecats(tridyobr.Labels);
+
+% vypsani trid ktere splnily podminku pro min. pocet a nasledne vypsani jejich poctu
+disp('Zachované třídy (>= 20 obrázků):');
+disp(categories(tridyobr.Labels));
+disp('Tridy: ');
+disp(categories(tridyobr.Labels))
+
+disp('Pocet obrazku v jednotlivych tridach: ')
+countEachLabel(tridyobr)
+
+disp('Pocet trid: ')
+pocettrid = numel(categories(tridyobr.Labels));
+disp(pocettrid)
+
+% rozdeleni dat na trenovaci a validacni cast
+[obrtrenink, obrvalidace] = splitEachLabel(tridyobr, 0.7, 'randomized');
+
+% odstraneni nepouzivanych kategorii z trenovaci a validacni sady
+obrtrenink.Labels = removecats(obrtrenink.Labels);
+obrvalidace.Labels = removecats(obrvalidace.Labels);
+
+% vypsani poctu obrazku v trenovaci a validacni sade
+disp('trenovaci sada')
+countEachLabel(obrtrenink)
+disp('validacni sada')
+countEachLabel(obrvalidace)
+
+% nacteni kategorii z trenovacich dat
+trainCats = categories(obrtrenink.Labels);
+
+% nacteni kategorii z validacnich dat
+valCats = categories(obrvalidace.Labels);
+
+% vypsani kategorii z trenovacich dat
+disp('Kategorie train:');
+disp(trainCats);
+
+% vypsani kategorii z validacnich dat
+disp('Kategorie validation:');
+disp(valCats);
+
+% kontrola jestli trenovaci a validacni sada obsahuji stejne kategorie
+if ~isequal(trainCats, valCats)
+    error('Train a validation nemají stejné kategorie.');
+end
+
+% vypocet poctu trid
+pocettrid = numel(trainCats);
+disp(['Počet tříd: ', num2str(pocettrid)]);
+
+% ulozeni puvodnich validacnich dat
+imdsVal = obrvalidace;
+
+% nacteni predtrenovane CNN site ResNet-18
+net = resnet18;
+
+% ziskani vstupni velikosti obrazku podle pozadavku site
+inputSize = net.Layers(1).InputSize;
+
+% nastaveni augmentace trenovacich dat
+imageAugmenter = imageDataAugmenter( ...
+    'RandRotation', [0 360], ...
+    'RandXReflection', true, ...
+    'RandYReflection', true, ...
+    'RandXTranslation', [-5 5], ...
+    'RandYTranslation', [-5 5], ...
+    'RandScale', [0.8 1.2]);
+
+% zmena velikosti vstupnich dat podle pozadavku site
+augTrain = augmentedImageDatastore(inputSize(1:2), obrtrenink, ...
+    'ColorPreprocessing', 'gray2rgb', ...
+    'DataAugmentation', imageAugmenter);
+
+% zmena velikosti validacnich dat podle pozadavku site
+augVal = augmentedImageDatastore(inputSize(1:2), obrvalidace, ...
+    'ColorPreprocessing', 'gray2rgb');
+
+% prevedeni site do grafu vrstev
+grafSite = layerGraph(net);
+
+% vytvoreni nove plne propojene vrstvy
+novaVrstvaFc = fullyConnectedLayer(pocettrid, ...
+    'Name', 'vystupni_vrstva');
+
+% vytvoreni nove klasifikacni vrstvy
+novaVrstvaKlas = classificationLayer( ...
+    'Name', 'klasifikacni_vrstva');
+
+% nahrazeni puvodni plne propojene vrstvy
+grafSite = replaceLayer(grafSite, 'fc1000', novaVrstvaFc);
+
+% nahrazeni puvodni klasifikacni vrstvy
+grafSite = replaceLayer(grafSite, 'ClassificationLayer_predictions', novaVrstvaKlas);
+
+% nastaveni trenovani neuronove site
+options = trainingOptions('sgdm', ...
+    'InitialLearnRate', 1e-4, ...
+    'MaxEpochs', 40, ...
+    'MiniBatchSize', 63, ...
+    'Shuffle', 'every-epoch', ...
+    'ValidationData', augVal, ...
+    'ValidationFrequency', 5, ...
+    'Verbose', false, ...
+    'Plots', 'training-progress', ...
+    'ExecutionEnvironment', 'gpu');
+
+% resetovani trenovacich a validacnich dat
+reset(augTrain);
+reset(augVal);
+
+% trenovani upravene site ResNet-18
+trenovaciNetw = trainNetwork(augTrain, grafSite, options);
+
+% resetovani validacnich dat pred klasifikaci
+reset(augVal);
+
+% klasifikace validacnich dat
+[YPred, pravdepodobnost] = classify(trenovaciNetw, augVal);
+
+% nacteni spravnych trid z validacnich dat
+spravnetridy = imdsVal.Labels;
+
+% vypocet presnosti modelu ktery je udavany v procentech
+presnost = mean(YPred == spravnetridy) * 100;
+
+% vypsani dosazene presnosti
+disp(['Přesnost klasifikace na validačních datech: ', num2str(presnost, '%.2f'), ' %']);
+
+% ulozeni modelu a vysledku do souboru
+save('trenovaciresnet.mat', 'trenovaciNetw', 'presnost', 'pravdepodobnost');
